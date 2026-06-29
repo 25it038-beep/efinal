@@ -20,8 +20,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
-import { API_URL, parseApiError, executeWithRetry } from '../config';
+import { parseApiError, executeWithRetry, apiRequest, isOfflineError, getOfflineEmailAnalysis, getOfflineUrlAnalysis } from '../config';
 import confetti from 'canvas-confetti';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -170,14 +169,16 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
         if (file) {
           const formData = new FormData();
           formData.append('file', file);
-          return axios.post<PredictResponse>(`${API_URL}/api/upload`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-          }).then(res => res.data);
-        } else {
-          return axios.post<PredictResponse>(`${API_URL}/api/predict`, {
-            text: inputText
-          }).then(res => res.data);
+          return apiRequest<PredictResponse>('/api/upload', {
+            method: 'post',
+            data: formData
+          });
         }
+
+        return apiRequest<PredictResponse>('/api/predict', {
+          method: 'post',
+          data: { text: inputText }
+        });
       });
 
       setEmailResult(data);
@@ -188,7 +189,13 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
       }
     } catch (err: any) {
       console.error(err);
-      setError(parseApiError(err));
+      if (isOfflineError(err)) {
+        const fallbackResult = getOfflineEmailAnalysis(inputText || file?.name || 'Uploaded content');
+        setEmailResult(fallbackResult as PredictResponse);
+        setError('The backend was unreachable, so a local heuristic fallback was used. You can try again shortly.');
+      } else {
+        setError(parseApiError(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -205,10 +212,11 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
     setUrlResult(null);
 
     try {
-      const data = await executeWithRetry(() => 
-        axios.post<UrlAnalyzeResponse>(`${API_URL}/api/analyze-url`, {
-          url: inputUrl.trim()
-        }).then(res => res.data)
+      const data = await executeWithRetry(() =>
+        apiRequest<UrlAnalyzeResponse>('/api/analyze-url', {
+          method: 'post',
+          data: { url: inputUrl.trim() }
+        })
       );
 
       setUrlResult(data);
@@ -219,7 +227,13 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
       }
     } catch (err: any) {
       console.error(err);
-      setError(parseApiError(err));
+      if (isOfflineError(err)) {
+        const fallbackResult = getOfflineUrlAnalysis(inputUrl.trim());
+        setUrlResult(fallbackResult as UrlAnalyzeResponse);
+        setError('The backend was unreachable, so a local heuristic fallback was used. You can try again shortly.');
+      } else {
+        setError(parseApiError(err));
+      }
     } finally {
       setLoading(false);
     }

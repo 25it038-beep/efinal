@@ -6,11 +6,10 @@ import {
   Menu, 
   X
 } from 'lucide-react';
-import axios from 'axios';
 import { Dashboard } from './components/Dashboard';
 import { EmailAnalyzer } from './components/EmailAnalyzer';
 import { History } from './components/History';
-import { API_URL, parseApiError, executeWithRetry } from './config';
+import { parseApiError, executeWithRetry, apiRequest } from './config';
 
 
 interface KeywordImportance {
@@ -126,8 +125,8 @@ export default function App() {
   const fetchStats = async () => {
     setLoadingStats(true);
     try {
-      const data = await executeWithRetry(() => 
-        axios.get<StatsData>(`${API_URL}/api/stats`).then(res => res.data)
+      const data = await executeWithRetry(() =>
+        apiRequest<StatsData>('/api/stats', { method: 'get' })
       );
       setStats(data);
     } catch (err) {

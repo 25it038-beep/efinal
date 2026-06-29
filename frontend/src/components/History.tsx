@@ -20,8 +20,7 @@ import {
   FileText,
   Link as LinkIcon
 } from 'lucide-react';
-import axios from 'axios';
-import { API_URL, executeWithRetry } from '../config';
+import { executeWithRetry, apiRequest } from '../config';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
@@ -65,8 +64,8 @@ export const History: React.FC<HistoryProps> = ({ triggerRefresh }) => {
   const fetchHistory = async () => {
     setLoading(true);
     try {
-      const data = await executeWithRetry(() => 
-        axios.get<PredictResponse[]>(`${API_URL}/api/history?limit=100`).then(res => res.data)
+      const data = await executeWithRetry(() =>
+        apiRequest<PredictResponse[]>('/api/history?limit=100', { method: 'get' })
       );
       setHistory(data);
     } catch (err) {
