@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
+import { API_URL, parseApiError, executeWithRetry } from '../config';
 import confetti from 'canvas-confetti';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -153,7 +154,6 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
     }, 250);
   };
 
-  const API_URL = import.meta.env.VITE_API_URL as string;
 
   const handleEmailScan = async () => {
     if (!inputText.trim() && !file) {
@@ -166,29 +166,29 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
     setEmailResult(null);
 
     try {
-      let response;
+      const data = await executeWithRetry(async () => {
+        if (file) {
+          const formData = new FormData();
+          formData.append('file', file);
+          return axios.post<PredictResponse>(`${API_URL}/api/upload`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          }).then(res => res.data);
+        } else {
+          return axios.post<PredictResponse>(`${API_URL}/api/predict`, {
+            text: inputText
+          }).then(res => res.data);
+        }
+      });
 
-      if (file) {
-        const formData = new FormData();
-        formData.append('file', file);
-        response = await axios.post<PredictResponse>(`${API_URL}/api/upload`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-      } else {
-        response = await axios.post<PredictResponse>(`${API_URL}/api/predict`, {
-          text: inputText
-        });
-      }
-
-      setEmailResult(response.data);
+      setEmailResult(data);
       onScanCompleted();
 
-      if (response.data.classification === 'Safe') {
+      if (data.classification === 'Safe') {
         triggerConfetti();
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.response?.data?.detail || 'Analysis failed. Make sure the backend server is running.');
+      setError(parseApiError(err));
     } finally {
       setLoading(false);
     }
@@ -205,19 +205,21 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
     setUrlResult(null);
 
     try {
-      const response = await axios.post<UrlAnalyzeResponse>(`${API_URL}/api/analyze-url`, {
-        url: inputUrl.trim()
-      });
+      const data = await executeWithRetry(() => 
+        axios.post<UrlAnalyzeResponse>(`${API_URL}/api/analyze-url`, {
+          url: inputUrl.trim()
+        }).then(res => res.data)
+      );
 
-      setUrlResult(response.data);
+      setUrlResult(data);
       onScanCompleted();
 
-      if (response.data.status === 'Safe') {
+      if (data.status === 'Safe') {
         triggerConfetti();
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.response?.data?.detail || 'URL analysis failed. Make sure the backend server is running.');
+      setError(parseApiError(err));
     } finally {
       setLoading(false);
     }

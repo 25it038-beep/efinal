@@ -10,6 +10,7 @@ import axios from 'axios';
 import { Dashboard } from './components/Dashboard';
 import { EmailAnalyzer } from './components/EmailAnalyzer';
 import { History } from './components/History';
+import { API_URL, parseApiError, executeWithRetry } from './config';
 
 
 interface KeywordImportance {
@@ -121,16 +122,17 @@ export default function App() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const API_URL = import.meta.env.VITE_API_URL as string;
 
   const fetchStats = async () => {
     setLoadingStats(true);
     try {
-      const response = await axios.get<StatsData>(`${API_URL}/api/stats`);
-      setStats(response.data);
+      const data = await executeWithRetry(() => 
+        axios.get<StatsData>(`${API_URL}/api/stats`).then(res => res.data)
+      );
+      setStats(data);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
-      showToast('Backend server connection failed. Visuals may be offline.', 'error');
+      showToast(parseApiError(err), 'error');
     } finally {
       setLoadingStats(false);
     }

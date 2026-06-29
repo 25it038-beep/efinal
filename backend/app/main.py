@@ -46,24 +46,48 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS Configuration (Production Ready)
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+# CORS Configuration (Production Ready - Dynamic Origin Resolution)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,  # Set to False when using wildcard, custom middleware handles credentialed origins dynamically
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Custom Security Headers Middleware
+# Custom Security Headers & Dynamic CORS Middleware
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    origin = request.headers.get("origin", "")
+    
+    # Handle preflight OPTIONS requests dynamically
+    if request.method == "OPTIONS":
+        response = Response()
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+        return response
+
     response = await call_next(request)
+    
+    # Dynamic CORS header injection for credentialed requests
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://finalcheck-1.onrender.com http://localhost:8000 http://localhost:5173 http://127.0.0.1:8000;"
+    
+    # Dynamically resolve current host for CSP
+    host = request.headers.get("host", "")
+    scheme = "https" if request.url.is_secure or request.headers.get("x-forwarded-proto") == "https" else "http"
+    current_host_url = f"{scheme}://{host}" if host else ""
+    
+    csp_connect = f"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' {current_host_url} {origin} http://localhost:8000 http://localhost:5173 http://127.0.0.1:8000;"
+    response.headers["Content-Security-Policy"] = csp_connect
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 

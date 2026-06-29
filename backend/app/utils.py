@@ -395,7 +395,6 @@ def get_whois_info(domain: str) -> Dict[str, Any]:
 
     # Simulation fallback if completely offline/blocked
     # Generate stable mock data based on domain hashing to keep it consistent
-    import hash_helper  # simulated
     h = hash(domain) % 365
     result["registrar"] = "GoDaddy.com, LLC"
     result["country"] = "US"
