@@ -4,12 +4,16 @@ import re
 import datetime
 import asyncio
 from typing import List, Dict, Any, Optional
+from urllib.parse import urlparse
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, HTMLResponse
+from fastapi.responses import JSONResponse, Response, HTMLResponse
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Rate limiting
 try:
@@ -64,17 +68,31 @@ app = FastAPI(
     version="2.0.0"
 )
 
+ALLOWED_ORIGINS = [
+    origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://*.vercel.app").split(",") if origin.strip()
+]
+
+
+def is_allowed_origin(origin: Optional[str]) -> bool:
+    if not origin:
+        return False
+    if origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1"):
+        return True
+    if origin.startswith("https://") and origin.endswith(".vercel.app"):
+        return True
+    return origin in {"https://your-production-frontend.example"}
+
 # Register Rate Limit Exception Handler
 app.state.limiter = limiter
 if SLOWAPI_AVAILABLE:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS Configuration (Production Ready - Dynamic Origin Resolution)
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,  # Set to False when using wildcard, custom middleware handles credentialed origins dynamically
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -94,11 +112,12 @@ async def add_security_headers(request: Request, call_next):
         return response
 
     response = await call_next(request)
-    
-    # Dynamic CORS header injection for credentialed requests
-    if origin:
+
+    if origin and is_allowed_origin(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
+    elif origin:
+        response.headers["Access-Control-Allow-Origin"] = ""
         
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -116,16 +135,51 @@ async def add_security_headers(request: Request, call_next):
 
 # Initialize Database tables
 Base.metadata.create_all(bind=engine)
+print("✓ Database connected")
 
 # Initialize Classifier
 classifier = PhishingClassifier()
 
 # Limit file size to 10MB for enterprise scans
-MAX_FILE_SIZE = 10 * 1024 * 1024 
+MAX_FILE_SIZE = 10 * 1024 * 1024
 
 # Optional Authentication Dependency (Disabled)
 def get_optional_current_user() -> Optional[Any]:
     return None
+
+
+def validate_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Invalid URL. Use http:// or https://")
+    return url
+
+
+def validate_email_text(text: str) -> str:
+    sanitized_text = sanitize_html(text)
+    if not sanitized_text or len(sanitized_text.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Invalid or empty email text.")
+    return sanitized_text
+
+
+@app.get("/")
+def root() -> Dict[str, str]:
+    return {"status": "healthy"}
+
+
+@app.get("/health")
+def health() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 # --- Core Scanner Routes (V2 SaaS Version) ---
 
@@ -137,9 +191,7 @@ async def predict_email(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_user)
 ):
-    sanitized_text = sanitize_html(payload.text)
-    if not sanitized_text:
-        raise HTTPException(status_code=400, detail="Invalid or empty email text.")
+    sanitized_text = validate_email_text(payload.text)
         
     # 1. Core ML Text Scan (Sync CPU bound - run in threadpool)
     result = await run_in_threadpool(classifier.predict, sanitized_text)
@@ -229,8 +281,10 @@ async def upload_email(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_user)
 ):
-    # Validate file size and type
-    filename = file.filename or ""
+    filename = (file.filename or "").strip()
+    if not filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid file name.")
+
     ext = os.path.splitext(filename)[1].lower()
     if ext not in [".txt", ".eml"]:
         raise HTTPException(status_code=400, detail="Invalid file type. Only .txt and .eml supported.")
@@ -390,9 +444,7 @@ async def analyze_url_endpoint(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_user)
 ):
-    sanitized_url = payload.url.strip()
-    if not sanitized_url:
-        raise HTTPException(status_code=400, detail="URL cannot be empty.")
+    sanitized_url = validate_url(payload.url.strip())
         
     # 1. Core Heuristic Reputation Check
     result = check_url_reputation(sanitized_url)
@@ -633,6 +685,8 @@ def get_stats(
         file_type_distribution=file_type_distribution,
         recent_scans=recent_scans
     )
+
+print("✓ API started")
 
 # --- Browser Extension Download Route ---
 

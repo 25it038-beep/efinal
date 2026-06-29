@@ -1,7 +1,16 @@
 services:
   - type: web
     name: emailsupcious
-    runtime: python
+    runtime: docker
     rootDir: backend
-    buildCommand: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        value: sqlite:///tmp/phishing_detector.db
+      - key: SECRET_KEY
+        value: change-me
+      - key: CORS_ORIGINS
+        value: http://localhost:5173,http://127.0.0.1:5173,https://*.vercel.app
