@@ -185,3 +185,5 @@ To make the classification transparent, our model uses **local feature importanc
 3. For every word present in the email, we multiply its TF-IDF score by its coefficient for the "Phishing" or "Safe" class.
 4. The words with the highest positive weights are classified as **Danger Keywords** (pushing the score towards Phishing), while negative or safe-associated words are classified as **Safe Keywords**.
 5. These weights are plotted in a horizontal bar chart on the UI, and the high-risk words are highlighted in red in the email body.
+#   e f i n a l  
+ 
