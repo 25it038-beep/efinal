@@ -12,9 +12,31 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 # Rate limiting
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    SLOWAPI_AVAILABLE = True
+except ImportError:  # pragma: no cover - fallback for minimal deployments
+    SLOWAPI_AVAILABLE = False
+
+    class RateLimitExceeded(Exception):
+        pass
+
+    def _rate_limit_exceeded_handler(request, exc):
+        raise exc
+
+    def get_remote_address(request):
+        return request.client.host if request.client else "unknown"
+
+    class Limiter:
+        def __init__(self, key_func=None):
+            self.key_func = key_func
+
+        def limit(self, *args, **kwargs):
+            def decorator(func):
+                return func
+            return decorator
 
 # DB imports
 from .database import engine, Base, get_db
@@ -44,7 +66,8 @@ app = FastAPI(
 
 # Register Rate Limit Exception Handler
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+if SLOWAPI_AVAILABLE:
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS Configuration (Production Ready - Dynamic Origin Resolution)
 app.add_middleware(
