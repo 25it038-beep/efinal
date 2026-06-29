@@ -5,13 +5,8 @@ const ENV_BASE_URLS = [
   import.meta.env.VITE_API_BASE_URL
 ].filter((value): value is string => Boolean(value));
 
-const KNOWN_BACKEND_URLS = [
-  'https://efinal-vpxh.onrender.com',
-  'https://finalcheck-1.onrender.com'
-].filter((value): value is string => Boolean(value));
-
 const BROWSER_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
-const BASE_URLS = Array.from(new Set([...ENV_BASE_URLS, ...KNOWN_BACKEND_URLS, BROWSER_ORIGIN, '']))
+const BASE_URLS = Array.from(new Set([...ENV_BASE_URLS, BROWSER_ORIGIN, '']))
   .filter((value): value is string => Boolean(value));
 
 const DEFAULT_API_URL = BASE_URLS[0] || '';

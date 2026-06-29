@@ -1,19 +1,35 @@
 import os
 import re
 import html
+import logging
+from typing import Dict, List, Any, Tuple
+
+import joblib
 import nltk
+import numpy as np
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
-import joblib
-import numpy as np
-from typing import Dict, List, Any, Tuple
+
 from .indicators import analyze_indicators
 
-# Ensure NLTK resources are downloaded
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords', quiet=True)
+logger = logging.getLogger(__name__)
+
+
+def ensure_nltk_resources() -> None:
+    for resource in ("stopwords", "punkt"):
+        try:
+            if resource == "stopwords":
+                nltk.data.find("corpora/stopwords")
+            else:
+                nltk.data.find("tokenizers/punkt")
+        except LookupError:
+            try:
+                nltk.download(resource, quiet=True)
+            except Exception as exc:
+                logger.warning("NLTK resource %s could not be downloaded: %s", resource, exc)
+
+
+ensure_nltk_resources()
 
 # File paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,12 +62,11 @@ class PhishingClassifier:
             try:
                 self.model = joblib.load(MODEL_PATH)
                 self.vectorizer = joblib.load(VECTORIZER_PATH)
-                print("Model loaded successfully")
-                print("Vectorizer loaded successfully")
-            except Exception as e:
-                print(f"Model load failed: {e}. Falling back to rule-based analysis.")
+                logger.info("ML model loaded from %s and %s", MODEL_PATH, VECTORIZER_PATH)
+            except Exception as exc:
+                logger.warning("Model loading failed: %s. Falling back to rule-based analysis.", exc)
         else:
-            print("Model files missing. Falling back to rule-based analysis.")
+            logger.warning("Model files missing at %s or %s. Falling back to rule-based analysis.", MODEL_PATH, VECTORIZER_PATH)
 
     def get_fallback_prediction(self, indicators: Dict[str, Any]) -> Tuple[str, float, float]:
         """Fallback rule-based classification if ML model is not loaded."""

@@ -5,7 +5,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.12-slim
+FROM python:3.11-slim
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,7 +18,7 @@ RUN apt-get update \
 
 COPY backend/requirements.txt ./
 RUN pip install --upgrade pip \
-    && pip install --only-binary=:all: --prefer-binary -r requirements.txt
+    && pip install --no-cache-dir --only-binary=:all: --prefer-binary -r requirements.txt
 
 COPY backend/app/ ./app/
 COPY backend/models/ ./models/

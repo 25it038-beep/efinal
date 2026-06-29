@@ -4,8 +4,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    database_dir = os.path.dirname(os.path.abspath(__file__))
-    database_path = os.path.join(os.path.dirname(database_dir), "phishing_detector.db")
+    database_path = "/tmp/phishing_detector.db"
     DATABASE_URL = f"sqlite:///{database_path}"
 
 engine_kwargs = {}
