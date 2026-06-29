@@ -5,6 +5,7 @@ services:
     rootDir: backend
     dockerfilePath: Dockerfile
     dockerContext: .
+    healthCheckPath: /health
     envVars:
       - key: PORT
         value: 10000
