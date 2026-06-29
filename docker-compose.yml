@@ -6,9 +6,9 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "10000:10000"
     volumes:
       - ./backend/phishing_detector.db:/app/phishing_detector.db
     environment:
-      - PORT=8000
+      - PORT=10000
     restart: always

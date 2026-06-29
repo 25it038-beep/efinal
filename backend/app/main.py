@@ -68,7 +68,7 @@ app = FastAPI(
     version="2.0.0"
 )
 
-raw_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://*.vercel.app")
+raw_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://*.vercel.app,https://*.onrender.com,https://*.netlify.app")
 ALLOWED_ORIGINS = []
 ALLOWED_ORIGIN_REGEXES = []
 for raw_origin in raw_cors_origins.split(","):
