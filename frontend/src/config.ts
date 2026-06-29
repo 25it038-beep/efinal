@@ -6,14 +6,7 @@ const ENV_BASE_URLS = [
 ].filter((value): value is string => Boolean(value));
 
 const BROWSER_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
-const LOCAL_BASE_URLS = [
-  'http://localhost:8000',
-  'http://127.0.0.1:8000',
-  'http://localhost:5000',
-  'http://127.0.0.1:5000'
-];
-
-const BASE_URLS = Array.from(new Set([...ENV_BASE_URLS, BROWSER_ORIGIN, ...LOCAL_BASE_URLS]))
+const BASE_URLS = Array.from(new Set([...ENV_BASE_URLS, BROWSER_ORIGIN, '']))
   .filter((value): value is string => Boolean(value));
 
 const DEFAULT_API_URL = BASE_URLS[0] || '';

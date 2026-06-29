@@ -17,8 +17,8 @@ except LookupError:
 
 # File paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, "models", "model.pkl")
-VECTORIZER_PATH = os.path.join(BASE_DIR, "models", "vectorizer.pkl")
+MODEL_PATH = os.getenv("MODEL_PATH") or os.path.join(BASE_DIR, "models", "model.pkl")
+VECTORIZER_PATH = os.getenv("VECTORIZER_PATH") or os.path.join(BASE_DIR, "models", "vectorizer.pkl")
 
 # Preprocessing function (must match train.py)
 def preprocess_text(text: str) -> str:

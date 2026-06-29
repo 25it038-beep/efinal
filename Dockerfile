@@ -14,16 +14,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libzbar0 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app && useradd --system --gid app app
 
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --prefer-binary --no-cache-dir -r requirements.txt
 
 COPY backend/app/ ./app/
 COPY backend/models/ ./models/
-
 COPY --from=frontend-builder /frontend/dist/ ./static/dist/
+
+RUN chown -R app:app /app
+USER app
 
 EXPOSE 8000
 

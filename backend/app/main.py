@@ -68,9 +68,19 @@ app = FastAPI(
     version="2.0.0"
 )
 
-ALLOWED_ORIGINS = [
-    origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://*.vercel.app").split(",") if origin.strip()
-]
+raw_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,https://*.vercel.app")
+ALLOWED_ORIGINS = []
+ALLOWED_ORIGIN_REGEXES = []
+for raw_origin in raw_cors_origins.split(","):
+    origin = raw_origin.strip()
+    if not origin:
+        continue
+    if origin == "https://*.vercel.app":
+        ALLOWED_ORIGIN_REGEXES.append(r"https://([a-z0-9-]+\.)*vercel\.app")
+    elif origin == "*":
+        ALLOWED_ORIGIN_REGEXES.append(r".*")
+    else:
+        ALLOWED_ORIGINS.append(origin)
 
 
 def is_allowed_origin(origin: Optional[str]) -> bool:
@@ -80,7 +90,7 @@ def is_allowed_origin(origin: Optional[str]) -> bool:
         return True
     if origin.startswith("https://") and origin.endswith(".vercel.app"):
         return True
-    return origin in {"https://your-production-frontend.example"}
+    return origin in ALLOWED_ORIGINS
 
 # Register Rate Limit Exception Handler
 app.state.limiter = limiter
@@ -91,6 +101,7 @@ if SLOWAPI_AVAILABLE:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex="|".join(ALLOWED_ORIGIN_REGEXES) if ALLOWED_ORIGIN_REGEXES else None,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
@@ -140,8 +151,8 @@ print("✓ Database connected")
 # Initialize Classifier
 classifier = PhishingClassifier()
 
-# Limit file size to 10MB for enterprise scans
-MAX_FILE_SIZE = 10 * 1024 * 1024
+# Limit file size for enterprise scans
+MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", str(10 * 1024 * 1024)))
 
 # Optional Authentication Dependency (Disabled)
 def get_optional_current_user() -> Optional[Any]:
