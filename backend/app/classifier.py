@@ -46,12 +46,12 @@ class PhishingClassifier:
             try:
                 self.model = joblib.load(MODEL_PATH)
                 self.vectorizer = joblib.load(VECTORIZER_PATH)
-                print("✓ Model loaded")
-                print("✓ Vectorizer loaded")
+                print("Model loaded successfully")
+                print("Vectorizer loaded successfully")
             except Exception as e:
-                print(f"⚠ Model load failed: {e}. Falling back to rule-based analysis.")
+                print(f"Model load failed: {e}. Falling back to rule-based analysis.")
         else:
-            print("⚠ Model files missing. Falling back to rule-based analysis.")
+            print("Model files missing. Falling back to rule-based analysis.")
 
     def get_fallback_prediction(self, indicators: Dict[str, Any]) -> Tuple[str, float, float]:
         """Fallback rule-based classification if ML model is not loaded."""

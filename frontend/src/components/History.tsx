@@ -1,29 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Shield, 
-  AlertTriangle, 
   Search, 
-  Filter, 
+  Eye, 
   X, 
+  AlertTriangle, 
+  ShieldCheck, 
   Download, 
-  Calendar,
-  User,
-  Mail,
-  RefreshCw,
-  CheckCircle,
-  XCircle,
-  Flame,
-  Key,
-  DollarSign,
-  Sparkles,
-  Info,
+  Globe, 
+  Server, 
+  Fingerprint, 
   FileText,
-  Link as LinkIcon
+  RefreshCw
 } from 'lucide-react';
-import { executeWithRetry, apiRequest } from '../config';
+import axios from 'axios';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
+import { API_URL, executeWithRetry } from '../config';
 
 interface KeywordImportance {
   word: string;
@@ -31,8 +24,55 @@ interface KeywordImportance {
   type: string;
 }
 
+interface VirusTotalResult {
+  malicious: number;
+  suspicious: number;
+  harmless: number;
+  reputation: number;
+  community_votes_harmless: number;
+  community_votes_malicious: number;
+}
+
+interface WhoisResult {
+  domain_age_days?: number;
+  registrar?: string;
+  registration_date?: string;
+  expiration_date?: string;
+  country?: string;
+  is_new_domain: boolean;
+}
+
+interface EmailAuthResult {
+  spf: string;
+  dkim: string;
+  dmarc: string;
+  is_authenticated: boolean;
+}
+
+interface AttachmentInfo {
+  filename: string;
+  risk_level: string;
+  reason: string;
+  action: string;
+}
+
+interface MitreMapping {
+  id: string;
+  name: string;
+  description: string;
+}
+
+interface LlmAnalysisResult {
+  danger_explanation: string;
+  social_engineering_techniques: string[];
+  indicators_of_compromise: string[];
+  safety_recommendations: string[];
+  mitre_mappings: MitreMapping[];
+}
+
 interface PredictResponse {
   id?: number;
+  user_id?: number;
   subject?: string;
   sender?: string;
   classification: string;
@@ -41,31 +81,35 @@ interface PredictResponse {
   explanation: string;
   detected_indicators: Record<string, boolean>;
   highlighted_text: string;
-  xai_keywords: KeywordImportance[];
+  xai_keywords?: KeywordImportance[];
   created_at?: string;
+  
+  threat_type?: string;
+  virustotal_results?: VirusTotalResult;
+  whois_results?: WhoisResult;
+  email_auth_results?: EmailAuthResult;
+  attachment_analysis?: AttachmentInfo[];
+  llm_analysis?: LlmAnalysisResult;
+  ocr_extracted_text?: string;
 }
 
 interface HistoryProps {
-  onScanSelected: (scan: PredictResponse) => void;
   triggerRefresh: boolean;
+  onScanSelected: (scan: PredictResponse) => void;
 }
 
 export const History: React.FC<HistoryProps> = ({ triggerRefresh }) => {
   const [history, setHistory] = useState<PredictResponse[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterClass, setFilterClass] = useState<string>('ALL');
+  const [search, setSearch] = useState('');
   const [selectedScan, setSelectedScan] = useState<PredictResponse | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
-
-  const modalReportRef = useRef<HTMLDivElement>(null);
-
 
   const fetchHistory = async () => {
     setLoading(true);
     try {
-      const data = await executeWithRetry(() =>
-        apiRequest<PredictResponse[]>('/api/history?limit=100', { method: 'get' })
+      const data = await executeWithRetry(() => 
+        axios.get<PredictResponse[]>(`${API_URL}/api/history?limit=50`).then(res => res.data)
       );
       setHistory(data);
     } catch (err) {
@@ -79,12 +123,20 @@ export const History: React.FC<HistoryProps> = ({ triggerRefresh }) => {
     fetchHistory();
   }, [triggerRefresh]);
 
+  const filteredHistory = history.filter(item => {
+    const subject = item.subject?.toLowerCase() || '';
+    const sender = item.sender?.toLowerCase() || '';
+    const threat = item.threat_type?.toLowerCase() || '';
+    const query = search.toLowerCase();
+    return subject.includes(query) || sender.includes(query) || threat.includes(query);
+  });
+
   const handleExportPDF = async () => {
-    if (!modalReportRef.current || !selectedScan) return;
-    
+    const element = document.getElementById('audit-report-container');
+    if (!element || !selectedScan) return;
+
     setModalLoading(true);
     try {
-      const element = modalReportRef.current;
       const canvas = await html2canvas(element, {
         scale: 2,
         backgroundColor: '#080b11',
@@ -109,7 +161,7 @@ export const History: React.FC<HistoryProps> = ({ triggerRefresh }) => {
         heightLeft -= pageHeight;
       }
       
-      const fileName = `Phishing_Report_Hist_${selectedScan.id}_${selectedScan.subject?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'scan'}.pdf`;
+      const fileName = `Audit_Report_${selectedScan.id}_${(selectedScan.subject || 'scan').replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
       pdf.save(fileName);
     } catch (err) {
       console.error('PDF export failed:', err);
@@ -118,365 +170,322 @@ export const History: React.FC<HistoryProps> = ({ triggerRefresh }) => {
     }
   };
 
-  // Filter history based on search and classification dropdown
-  const filteredHistory = history.filter(item => {
-    const matchesSearch = 
-      (item.subject?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (item.sender?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (item.explanation?.toLowerCase() || '').includes(searchTerm.toLowerCase());
-    
-    const matchesClass = filterClass === 'ALL' || item.classification.toUpperCase() === filterClass;
-    
-    return matchesSearch && matchesClass;
-  });
-
   const formatTime = (dateStr?: string) => {
-    if (!dateStr) return '';
+    if (!dateStr) return 'N/A';
     const date = new Date(dateStr);
-    return date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const getIndicatorMetadata = (key: string) => {
-    const meta: Record<string, { label: string, icon: any }> = {
-      urgent_language: { label: 'Urgent Language', icon: Flame },
-      fake_login: { label: 'Credential Harvesting', icon: Key },
-      password_request: { label: 'Password Request', icon: Key },
-      banking_scam: { label: 'Banking Fraud', icon: DollarSign },
-      financial_fraud: { label: 'Financial Scam', icon: DollarSign },
-      crypto_scam: { label: 'Cryptocurrency Scam', icon: Sparkles },
-      suspicious_urls: { label: 'Suspicious URLs', icon: LinkIcon },
-      spoofed_sender: { label: 'Spoofed Sender', icon: AlertTriangle },
-      grammar_issues: { label: 'Grammar/Tone Issues', icon: Info },
-      dangerous_attachments: { label: 'Dangerous Attachments', icon: FileText }
-    };
-    return meta[key] || { label: key.replace('_', ' '), icon: Info };
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-            Incident Logs
+            Incident Logs & Audits
           </h1>
           <p className="text-slate-400 text-sm mt-1 font-mono">
-            Browse, filter, and audit historical security scans.
+            Audit history, investigate IOCs, and generate PDF compliance reports.
           </p>
         </div>
-        <button 
-          onClick={fetchHistory}
-          className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 hover:border-cyber-blue transition-all duration-300 font-mono text-xs"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          RELOAD INCIDENTS
-        </button>
-      </div>
 
-      {/* Filter Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-4">
         {/* Search Bar */}
-        <div className="relative flex-grow">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+        <div className="relative max-w-md w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <input
             type="text"
-            placeholder="Search by subject, sender, or content..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-850 focus:border-cyber-blue rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none transition-all duration-300 font-mono text-xs"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by Subject, Sender, or Threat Type..."
+            className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-800 focus:border-cyber-blue rounded-lg text-slate-200 placeholder-slate-650 focus:outline-none transition-all duration-300 font-mono text-xs"
           />
-        </div>
-        
-        {/* Dropdown Filter */}
-        <div className="relative min-w-[180px]">
-          <Filter className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <select
-            value={filterClass}
-            onChange={(e) => setFilterClass(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-850 focus:border-cyber-blue rounded-lg text-slate-300 focus:outline-none transition-all duration-300 font-mono text-xs appearance-none cursor-pointer"
-          >
-            <option value="ALL">ALL THREAT LEVELS</option>
-            <option value="SAFE">SAFE ONLY</option>
-            <option value="SUSPICIOUS">SUSPICIOUS ONLY</option>
-            <option value="PHISHING">PHISHING ONLY</option>
-          </select>
         </div>
       </div>
 
-      {/* Incident List */}
-      <div className="glass-panel rounded-xl overflow-hidden border border-slate-850">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-900/50 border-b border-slate-850 text-xs font-mono text-slate-400 uppercase">
-                <th className="p-4 pl-6">ID</th>
-                <th className="p-4">Subject</th>
-                <th className="p-4">Sender</th>
-                <th className="p-4">Scan Date</th>
-                <th className="p-4">Risk</th>
-                <th className="p-4">Status</th>
-                <th className="p-4 pr-6 text-right">Audit</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-850 text-sm">
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="p-12 text-center text-slate-500 font-mono">
-                    <RefreshCw className="w-6 h-6 text-cyber-blue animate-spin mx-auto mb-2" />
-                    RETRIEVING AUDIT LOGS...
-                  </td>
+      {/* History Table */}
+      <div className="glass-panel rounded-xl overflow-hidden">
+        {loading ? (
+          <div className="p-20 text-center text-xs font-mono text-slate-500 flex flex-col items-center gap-2 justify-center">
+            <RefreshCw className="w-6 h-6 text-cyber-blue animate-spin" />
+            <span>FETCHING INCIDENT LOGS...</span>
+          </div>
+        ) : filteredHistory.length === 0 ? (
+          <div className="p-20 text-center text-xs font-mono text-slate-500">
+            NO INCIDENT LOGS FOUND MATCHING QUERY
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left font-mono">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-900/50 text-slate-400 text-[10px] uppercase">
+                  <th className="p-4">Timestamp</th>
+                  <th className="p-4">Subject</th>
+                  <th className="p-4">Sender</th>
+                  <th className="p-4">Classification</th>
+                  <th className="p-4">Risk Rating</th>
+                  <th className="p-4">Threat Vector</th>
+                  <th className="p-4 text-right">Actions</th>
                 </tr>
-              ) : filteredHistory.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-12 text-center text-slate-500 font-mono">
-                    NO CYBER INCIDENTS MATCHING FILTERS
-                  </td>
-                </tr>
-              ) : (
-                filteredHistory.map((scan) => {
-                  let statusBadge = (
-                    <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-cyber-green/10 text-cyber-green border border-cyber-green/20">
-                      SAFE
-                    </span>
-                  );
-                  if (scan.classification === 'Suspicious') {
-                    statusBadge = (
-                      <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-cyber-yellow/10 text-cyber-yellow border border-cyber-yellow/20">
-                        SUSPICIOUS
-                      </span>
-                    );
-                  } else if (scan.classification === 'Phishing') {
-                    statusBadge = (
-                      <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-cyber-red/10 text-cyber-red border border-cyber-red/20">
-                        PHISHING
-                      </span>
-                    );
+              </thead>
+              <tbody className="divide-y divide-slate-900">
+                {filteredHistory.map((item) => {
+                  let badgeClass = 'bg-cyber-green/10 text-cyber-green border-cyber-green/20';
+                  if (item.classification === 'Suspicious') {
+                    badgeClass = 'bg-cyber-yellow/10 text-cyber-yellow border-cyber-yellow/20';
+                  } else if (item.classification === 'Phishing') {
+                    badgeClass = 'bg-cyber-red/10 text-cyber-red border-cyber-red/20';
                   }
 
                   return (
-                    <tr key={scan.id} className="hover:bg-slate-800/20 transition-colors">
-                      <td className="p-4 pl-6 font-mono text-xs text-slate-500">
-                        #{scan.id}
-                      </td>
-                      <td className="p-4 font-medium max-w-xs truncate text-slate-200">
-                        {scan.subject}
-                      </td>
-                      <td className="p-4 text-slate-400 max-w-xs truncate font-mono text-xs">
-                        {scan.sender}
-                      </td>
-                      <td className="p-4 text-slate-500 font-mono text-xs">
-                        {formatTime(scan.created_at)}
-                      </td>
-                      <td className="p-4 font-mono text-xs text-slate-400">
-                        {scan.risk_score}/100
-                      </td>
+                    <tr key={item.id} className="hover:bg-slate-800/25 transition-colors">
+                      <td className="p-4 text-slate-450 whitespace-nowrap">{formatTime(item.created_at)}</td>
+                      <td className="p-4 font-medium text-slate-200 truncate max-w-[180px]">{item.subject}</td>
+                      <td className="p-4 text-slate-400 truncate max-w-[150px]">{item.sender}</td>
                       <td className="p-4">
-                        {statusBadge}
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${badgeClass}`}>
+                          {item.classification.toUpperCase()}
+                        </span>
                       </td>
-                      <td className="p-4 pr-6 text-right">
+                      <td className="p-4 font-bold text-slate-300">{item.risk_score}/100</td>
+                      <td className="p-4 text-slate-400">{item.threat_type || 'General'}</td>
+                      <td className="p-4 text-right whitespace-nowrap">
                         <button
-                          onClick={() => setSelectedScan(scan)}
-                          className="px-3 py-1 bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-300 font-mono text-xs rounded transition-colors border border-slate-750"
+                          onClick={() => setSelectedScan(item)}
+                          className="px-2.5 py-1.5 bg-slate-800 hover:bg-cyber-blue hover:text-black hover:shadow-neon-blue border border-slate-700 hover:border-cyber-blue rounded-md transition-all duration-300 text-[10px] font-bold cursor-pointer"
                         >
-                          AUDIT
+                          <span className="flex items-center gap-1">
+                            <Eye className="w-3.5 h-3.5" /> AUDIT
+                          </span>
                         </button>
                       </td>
                     </tr>
                   );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Audit Detail Modal */}
+      {/* Audit Modal */}
       {selectedScan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="glass-panel w-full max-w-4xl max-h-[90vh] rounded-2xl border border-slate-800 flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="glass-panel max-w-4xl w-full rounded-xl border border-slate-800 max-h-[90vh] flex flex-col text-left">
+            
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-850 flex justify-between items-center bg-slate-900/50">
-              <div className="flex items-center gap-3">
-                <Shield className={`w-5 h-5 ${
-                  selectedScan.classification === 'Phishing' 
-                    ? 'text-cyber-red' 
-                    : selectedScan.classification === 'Suspicious'
-                    ? 'text-cyber-yellow'
-                    : 'text-cyber-green'
-                }`} />
-                <h3 className="font-mono text-sm uppercase tracking-wider text-slate-200">
-                  Incident Audit: #{selectedScan.id}
-                </h3>
-              </div>
+            <div className="p-4 border-b border-slate-850 flex items-center justify-between font-mono text-xs">
+              <span className="text-cyber-blue font-bold tracking-widest">INCIDENT AUDIT: #{selectedScan.id}</span>
               <button 
                 onClick={() => setSelectedScan(null)}
-                className="p-1.5 text-slate-500 hover:text-white rounded-lg bg-slate-800 border border-slate-750 transition-colors"
+                className="p-1 text-slate-450 hover:text-white rounded bg-slate-800 border border-slate-700 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="p-6 overflow-y-auto flex-grow space-y-6 select-none" ref={modalReportRef}>
-              {/* Top Banner Info */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-900/40 border border-slate-850 p-4 rounded-xl">
-                <div className="space-y-1.5 text-left">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase flex items-center gap-1"><Mail className="w-3 h-3" /> Subject</span>
-                  <p className="text-xs font-medium text-slate-250 truncate">{selectedScan.subject}</p>
-                </div>
-                <div className="space-y-1.5 text-left">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase flex items-center gap-1"><User className="w-3 h-3" /> Sender</span>
-                  <p className="text-xs font-mono text-slate-350 truncate">{selectedScan.sender}</p>
-                </div>
-                <div className="space-y-1.5 text-left">
-                  <span className="text-[10px] font-mono text-slate-500 uppercase flex items-center gap-1"><Calendar className="w-3 h-3" /> Scan Date</span>
-                  <p className="text-xs font-mono text-slate-350">{formatTime(selectedScan.created_at)}</p>
-                </div>
-              </div>
-
-              {/* Status Banner */}
-              <div className={`p-5 rounded-xl border flex flex-col md:flex-row items-center justify-between gap-4 ${
+            {/* Modal Body (Scrollable Report) */}
+            <div className="flex-grow overflow-y-auto p-6 space-y-6" id="audit-report-container">
+              
+              {/* Header Status Block */}
+              <div className={`p-5 rounded-lg border flex flex-col sm:flex-row justify-between items-center gap-4 ${
                 selectedScan.classification === 'Phishing' 
-                  ? 'bg-cyber-red/5 border-cyber-red/25 text-cyber-red' 
+                  ? 'bg-cyber-red/5 border-cyber-red/20 text-red-100'
                   : selectedScan.classification === 'Suspicious'
-                  ? 'bg-cyber-yellow/5 border-cyber-yellow/25 text-cyber-yellow'
-                  : 'bg-cyber-green/5 border-cyber-green/25 text-cyber-green'
+                  ? 'bg-cyber-yellow/5 border-cyber-yellow/20 text-amber-100'
+                  : 'bg-cyber-green/5 border-cyber-green/20 text-emerald-100'
               }`}>
-                <div className="text-left">
-                  <h4 className="text-xl font-bold font-mono uppercase tracking-tight">
-                    {selectedScan.classification} DETECTED
-                  </h4>
-                  <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
-                    {selectedScan.explanation}
-                  </p>
-                </div>
-                <div className="flex gap-4 font-mono text-center shrink-0">
-                  <div className="px-4 py-1.5 bg-slate-950/80 rounded-lg border border-slate-850">
-                    <span className="text-[10px] text-slate-500 uppercase block">Confidence</span>
-                    <span className="text-lg font-bold text-white block mt-0.5">{selectedScan.confidence_score}%</span>
+                <div className="flex items-center gap-4 text-left">
+                  <div className={`p-3 rounded-xl ${
+                    selectedScan.classification === 'Phishing' ? 'bg-cyber-red/10 text-cyber-red' : selectedScan.classification === 'Suspicious' ? 'bg-cyber-yellow/10 text-cyber-yellow' : 'bg-cyber-green/10 text-cyber-green'
+                  }`}>
+                    {selectedScan.classification === 'Safe' ? <ShieldCheck className="w-8 h-8" /> : selectedScan.classification === 'Suspicious' ? <AlertTriangle className="w-8 h-8" /> : <Shield className="w-8 h-8" />}
                   </div>
-                  <div className="px-4 py-1.5 bg-slate-955/80 rounded-lg border border-slate-850">
-                    <span className="text-[10px] text-slate-500 uppercase block">Risk Score</span>
-                    <span className={`text-lg font-bold block mt-0.5 ${
-                      selectedScan.risk_score > 60 ? 'text-cyber-red' : selectedScan.risk_score > 30 ? 'text-cyber-yellow' : 'text-cyber-green'
-                    }`}>
-                      {selectedScan.risk_score}/100
-                    </span>
+                  <div>
+                    <h3 className="text-xl font-bold font-mono">{selectedScan.classification.toUpperCase()}</h3>
+                    <p className="text-[10px] font-mono text-slate-450 mt-0.5">Vector: {selectedScan.threat_type || 'General'}</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 font-mono text-center">
+                  <div>
+                    <span className="text-[9px] text-slate-500 block">RISK RATING</span>
+                    <span className="text-lg font-bold text-white block">{selectedScan.risk_score}/100</span>
+                  </div>
+                  <div className="border-l border-slate-800 pl-4">
+                    <span className="text-[9px] text-slate-500 block">CONFIDENCE</span>
+                    <span className="text-lg font-bold text-white block">{selectedScan.confidence_score}%</span>
+                  </div>
+                  <div className="border-l border-slate-800 pl-4">
+                    <span className="text-[9px] text-slate-500 block">TIMESTAMP</span>
+                    <span className="text-xs font-semibold text-slate-400 block mt-1">{formatTime(selectedScan.created_at)}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Indicators & XAI Chart */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Indicators list */}
-                <div className="glass-panel p-4 rounded-xl space-y-3">
-                  <h5 className="font-mono text-xs text-slate-300 uppercase border-b border-slate-800 pb-2">
-                    Indicators Check
-                  </h5>
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {Object.keys(selectedScan.detected_indicators).map((key) => {
-                      const isTriggered = selectedScan.detected_indicators[key];
-                      const meta = getIndicatorMetadata(key);
-                      const Icon = meta.icon;
-                      
-                      return (
-                        <div 
-                          key={key} 
-                          className={`flex items-center justify-between p-2 rounded-lg border text-xs ${
-                            isTriggered 
-                              ? 'bg-cyber-red/5 border-cyber-red/20 text-cyber-red' 
-                              : 'bg-slate-900/10 border-slate-850 text-slate-400'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Icon className="w-3.5 h-3.5" />
-                            <span className="font-medium">{meta.label}</span>
-                          </div>
-                          <div>
-                            {isTriggered ? (
-                              <XCircle className="w-4 h-4 text-cyber-red shrink-0" />
-                            ) : (
-                              <CheckCircle className="w-4 h-4 text-slate-600 shrink-0" />
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+              {/* Subject/Sender Metadata */}
+              <div className="p-4 bg-slate-950 border border-slate-900 rounded-lg font-mono text-xs text-left space-y-2">
+                <p className="truncate"><span className="text-slate-500">SUBJECT:</span> <span className="text-slate-200 font-semibold">{selectedScan.subject}</span></p>
+                <p className="truncate"><span className="text-slate-500">SENDER:</span> <span className="text-slate-200 font-semibold">{selectedScan.sender}</span></p>
+              </div>
 
-                {/* XAI Chart */}
-                <div className="glass-panel p-4 rounded-xl flex flex-col justify-between">
-                  <h5 className="font-mono text-xs text-slate-300 uppercase border-b border-slate-800 pb-2">
-                    AI Diagnostic Keywords
-                  </h5>
-                  <div className="h-40 mt-2">
-                    {selectedScan.xai_keywords.length === 0 ? (
-                      <div className="flex items-center justify-center h-full text-xs text-slate-500 font-mono">
-                        NO KEYWORDS DATA SAVED
-                      </div>
-                    ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart 
-                          data={selectedScan.xai_keywords} 
-                          layout="vertical" 
-                          margin={{ top: 5, right: 10, left: -15, bottom: 5 }}
-                        >
-                          <XAxis type="number" stroke="#475569" fontSize={8} />
-                          <YAxis dataKey="word" type="category" stroke="#94a3b8" fontSize={9} width={50} fontFamily="var(--font-mono)" />
-                          <Tooltip 
-                            contentStyle={{ 
-                              backgroundColor: '#0f172a', 
-                              borderColor: '#1e293b', 
-                              borderRadius: '6px', 
-                              color: '#f8fafc',
-                              fontSize: '10px'
-                            }} 
-                          />
-                          <Bar dataKey="weight" radius={[0, 2, 2, 0]}>
-                            {selectedScan.xai_keywords.map((entry, index) => (
-                              <Cell 
-                                key={`cell-${index}`} 
-                                fill={entry.type === 'danger' ? '#ff3838' : '#05ffc4'} 
-                              />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
+              {/* Explanatory Analysis */}
+              <div className="space-y-2 text-left">
+                <span className="text-[10px] font-mono text-slate-500 uppercase">Executive Security Analysis</span>
+                <p className="text-xs text-slate-300 leading-relaxed bg-slate-900/40 p-4 border border-slate-850 rounded-lg select-text">
+                  {selectedScan.explanation}
+                </p>
+              </div>
+
+              {/* V2 Sub Cards (WHOIS & VirusTotal) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* VirusTotal */}
+                {selectedScan.virustotal_results && (
+                  <div className="glass-panel p-4 rounded-lg text-left space-y-1.5">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase block border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                      <Server className="w-3.5 h-3.5 text-cyber-blue" /> VirusTotal Registry
+                    </span>
+                    <p className="text-xs font-mono text-slate-300">Detections: <span className="text-cyber-red font-bold">{selectedScan.virustotal_results.malicious}</span> / {selectedScan.virustotal_results.malicious + selectedScan.virustotal_results.harmless}</p>
+                    <p className="text-xs font-mono text-slate-300">Reputation: <span className="text-white font-bold">{selectedScan.virustotal_results.reputation}</span></p>
+                    <div className="flex justify-between text-[9px] font-mono text-slate-500 pt-1">
+                      <span className="text-cyber-green">+{selectedScan.virustotal_results.community_votes_harmless} safe</span>
+                      <span className="text-cyber-red">-{selectedScan.virustotal_results.community_votes_malicious} malicious</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* WHOIS */}
+                {selectedScan.whois_results && (
+                  <div className="glass-panel p-4 rounded-lg text-left space-y-1.5">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase block border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                      <Globe className="w-3.5 h-3.5 text-cyber-blue" /> WHOIS Domain Metadata
+                    </span>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] font-mono text-slate-400">
+                      <p className="truncate">Age: <span className="text-slate-200 font-bold">{selectedScan.whois_results.domain_age_days ?? 'N/A'} days</span></p>
+                      <p className="truncate">Country: <span className="text-slate-200 font-bold">{selectedScan.whois_results.country}</span></p>
+                      <p className="truncate">Registrar: <span className="text-slate-200 font-bold">{selectedScan.whois_results.registrar}</span></p>
+                      <p className="truncate">Reg Date: <span className="text-slate-200 font-bold">{selectedScan.whois_results.registration_date}</span></p>
+                    </div>
+                    {selectedScan.whois_results.is_new_domain && (
+                      <span className="block text-[8px] font-mono text-cyber-red font-bold text-center bg-cyber-red/10 border border-cyber-red/20 py-0.5 rounded animate-pulse mt-1">
+                        ⚠️ DANGEROUS: DOMAIN AGE &lt; 90 DAYS!
+                      </span>
                     )}
                   </div>
-                </div>
+                )}
               </div>
 
-              {/* Heatmap */}
-              <div className="glass-panel p-4 rounded-xl space-y-3">
-                <h5 className="font-mono text-xs text-slate-300 uppercase border-b border-slate-800 pb-2 text-left">
-                  Email Body Heatmap
-                </h5>
-                <div 
-                  className="bg-slate-950 border border-slate-900 rounded-lg p-4 font-mono text-xs text-slate-350 leading-relaxed text-left whitespace-pre-wrap max-h-48 overflow-y-auto"
-                  dangerouslySetInnerHTML={{ __html: selectedScan.highlighted_text }}
-                />
+              {/* Email Authentication & Attachments */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Email Auth */}
+                {selectedScan.email_auth_results && (
+                  <div className="glass-panel p-4 rounded-lg text-left space-y-2">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase block border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                      <Fingerprint className="w-3.5 h-3.5 text-cyber-blue" /> Email Auth Status
+                    </span>
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs font-mono">
+                      <div className="p-1 bg-slate-950 border border-slate-900 rounded">
+                        <span className="text-[8px] text-slate-500 block">SPF</span>
+                        <span className={`font-bold ${selectedScan.email_auth_results.spf === 'Pass' ? 'text-cyber-green' : selectedScan.email_auth_results.spf === 'Fail' ? 'text-cyber-red' : 'text-slate-400'}`}>
+                          {selectedScan.email_auth_results.spf}
+                        </span>
+                      </div>
+                      <div className="p-1 bg-slate-950 border border-slate-900 rounded">
+                        <span className="text-[8px] text-slate-500 block">DKIM</span>
+                        <span className={`font-bold ${selectedScan.email_auth_results.dkim === 'Pass' ? 'text-cyber-green' : selectedScan.email_auth_results.dkim === 'Fail' ? 'text-cyber-red' : 'text-slate-400'}`}>
+                          {selectedScan.email_auth_results.dkim}
+                        </span>
+                      </div>
+                      <div className="p-1 bg-slate-955 border border-slate-900 rounded">
+                        <span className="text-[8px] text-slate-500 block">DMARC</span>
+                        <span className={`font-bold ${selectedScan.email_auth_results.dmarc === 'Pass' ? 'text-cyber-green' : selectedScan.email_auth_results.dmarc === 'Fail' ? 'text-cyber-red' : 'text-slate-400'}`}>
+                          {selectedScan.email_auth_results.dmarc}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Attachments */}
+                {selectedScan.attachment_analysis && selectedScan.attachment_analysis.length > 0 && (
+                  <div className="glass-panel p-4 rounded-lg text-left space-y-2">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase block border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-cyber-blue" /> Scanned Attachments
+                    </span>
+                    <div className="space-y-1.5 max-h-16 overflow-y-auto pr-1">
+                      {selectedScan.attachment_analysis.map((att, i) => (
+                        <div key={i} className="flex justify-between items-center text-[10px] font-mono bg-slate-950 p-1 border border-slate-900 rounded">
+                          <span className="text-slate-300 truncate max-w-[120px]">{att.filename}</span>
+                          <span className={`px-1 rounded text-[8px] font-bold ${
+                            att.risk_level === 'High' ? 'bg-cyber-red/10 text-cyber-red border border-cyber-red/20' : 'bg-cyber-green/10 text-cyber-green border border-cyber-green/20'
+                          }`}>
+                            {att.risk_level}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* MITRE ATT&CK Mapping */}
+              {selectedScan.llm_analysis && (
+                <div className="glass-panel p-4 rounded-lg text-left space-y-3">
+                  <span className="text-[10px] font-mono text-slate-500 uppercase block border-b border-slate-800 pb-1 flex items-center gap-1.5">
+                    <Fingerprint className="w-3.5 h-3.5 text-cyber-blue" /> MITRE ATT&CK Matrix Mappings
+                  </span>
+                  <div className="space-y-2">
+                    {selectedScan.llm_analysis.mitre_mappings.map((m, i) => (
+                      <div key={i} className="p-2.5 bg-slate-950 border border-slate-900 rounded flex gap-2.5">
+                        <span className="text-[9px] font-mono font-bold text-cyber-red bg-cyber-red/5 border border-cyber-red/20 px-1.5 py-0.5 rounded h-fit shrink-0">
+                          {m.id}
+                        </span>
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-bold text-slate-200">{m.name}</p>
+                          <p className="text-[10px] text-slate-450 leading-relaxed">{m.description}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Risk Heatmap */}
+              {selectedScan.highlighted_text && (
+                <div className="glass-panel p-4 rounded-lg text-left space-y-2">
+                  <span className="text-[10px] font-mono text-slate-500 uppercase block border-b border-slate-800 pb-1">
+                    Email Heatmap
+                  </span>
+                  <div 
+                    className="bg-slate-950 border border-slate-900 rounded p-3 font-mono text-xs text-slate-350 leading-relaxed select-text whitespace-pre-wrap max-h-36 overflow-y-auto"
+                    dangerouslySetInnerHTML={{ __html: selectedScan.highlighted_text }}
+                  />
+                </div>
+              )}
+
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-850 bg-slate-900/50 flex justify-end gap-3">
+            <div className="p-4 border-t border-slate-850 bg-slate-900/10 flex justify-end gap-3">
               <button
                 onClick={() => setSelectedScan(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs rounded-lg border border-slate-700 transition-colors"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs rounded-lg border border-slate-700 transition-all duration-300 cursor-pointer"
               >
                 CLOSE AUDIT
               </button>
               <button
                 onClick={handleExportPDF}
                 disabled={modalLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyber-blue font-mono text-xs rounded-lg border border-slate-700 hover:border-cyber-blue transition-colors disabled:text-slate-600 disabled:border-slate-800"
+                className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyber-blue font-mono text-xs rounded-lg border border-slate-700 hover:border-cyber-blue transition-all duration-300 cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5" />
-                {modalLoading ? 'EXPORTING PDF...' : 'EXPORT REPORT AS PDF'}
+                {modalLoading ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Download className="w-3.5 h-3.5" />
+                )}
+                EXPORT AUDIT REPORT
               </button>
             </div>
+
           </div>
         </div>
       )}

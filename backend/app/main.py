@@ -146,7 +146,7 @@ async def add_security_headers(request: Request, call_next):
 
 # Initialize Database tables
 Base.metadata.create_all(bind=engine)
-print("✓ Database connected")
+print("Database connected successfully")
 
 # Initialize Classifier
 classifier = PhishingClassifier()
@@ -697,7 +697,7 @@ def get_stats(
         recent_scans=recent_scans
     )
 
-print("✓ API started")
+print("API started successfully")
 
 # --- Browser Extension Download Route ---
 

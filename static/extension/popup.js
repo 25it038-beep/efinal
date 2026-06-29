@@ -15,8 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const resultExplanation = document.getElementById('result-explanation');
   const resultIndicators = document.getElementById('result-indicators');
 
-  // API Endpoint
-  const API_URL = 'https://finalcheck-1.onrender.com/api/predict';
+  // API Endpoint (connects to the deployed SaaS backend)
+  const API_URL = 'https://efinal-vpxh.onrender.com/api/predict';
 
   // Check if there is selected text from context menu
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
       displayResults(data);
     } catch (err) {
       console.error(err);
-      alert('Failed to connect to the phishing detector backend. Ensure the server is running at https://finalcheck-1.onrender.com');
+      alert('Failed to connect to the phishing detector backend. Ensure the server is running at https://efinal-vpxh.onrender.com');
       
       // Go back to input
       loadingView.style.display = 'none';
