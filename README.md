@@ -110,7 +110,7 @@ A production-ready, highly aesthetic cybersecurity application that classifies e
    ```bash
    uvicorn app.main:app --reload --port 8000
    ```
-   The API will be available at `https://phishingguard-lncj.onrender.com`. You can view the interactive Swagger documentation at `https://phishingguard-lncj.onrender.com/docs`.
+   The API will be available at `https://finalcheck-1.onrender.com`. You can view the interactive Swagger documentation at `https://finalcheck-1.onrender.com/docs`.
 
 ---
 
@@ -128,7 +128,7 @@ A production-ready, highly aesthetic cybersecurity application that classifies e
    ```bash
    npm run dev
    ```
-   The web application will be available at `https://phishingguard-lncj.onrender.com`.
+   The web application will be available at `http://localhost:5173`.
 
 ---
 
@@ -140,7 +140,7 @@ To run the entire application in a single production-ready container (where Fast
    ```bash
    docker-compose up --build
    ```
-2. Open your browser and navigate to `https://phishingguard-lncj.onrender.com`.
+2. Open your browser and navigate to `http://localhost:8000`.
 
 ---
 
