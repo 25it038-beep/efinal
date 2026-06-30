@@ -54,7 +54,7 @@ python app.py
 
 Open your browser and visit
 
-http://127.0.0.1:5000
+https://efinal-ok77.vercel.app/
 How It Works
 The user enters the email text.
 The email is converted into numerical features using a trained vectorizer.
