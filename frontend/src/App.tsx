@@ -292,6 +292,11 @@ export default function App() {
           )}
 
         </main>
+
+        {/* Footer */}
+        <footer className="py-4 border-t border-slate-900 bg-slate-950/20 text-center font-mono text-[10px] text-slate-500">
+          <span>Developed by <span className="text-cyber-blue font-bold">@harshan seliyan</span></span>
+        </footer>
       </div>
     </div>
   );
