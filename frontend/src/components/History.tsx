@@ -38,7 +38,9 @@ interface WhoisResult {
   registrar?: string;
   registration_date?: string;
   expiration_date?: string;
+  updated_date?: string;
   country?: string;
+  name_servers?: string;
   is_new_domain: boolean;
 }
 
@@ -364,6 +366,9 @@ export const History: React.FC<HistoryProps> = ({ triggerRefresh }) => {
                       <p className="truncate">Country: <span className="text-slate-200 font-bold">{selectedScan.whois_results.country}</span></p>
                       <p className="truncate">Registrar: <span className="text-slate-200 font-bold">{selectedScan.whois_results.registrar}</span></p>
                       <p className="truncate">Reg Date: <span className="text-slate-200 font-bold">{selectedScan.whois_results.registration_date}</span></p>
+                      <p className="truncate">Expires: <span className="text-slate-200 font-bold">{selectedScan.whois_results.expiration_date}</span></p>
+                      <p className="truncate">Updated: <span className="text-slate-200 font-bold">{selectedScan.whois_results.updated_date}</span></p>
+                      <p className="truncate col-span-2">Name Servers: <span className="text-slate-200 font-bold" title={selectedScan.whois_results.name_servers}>{selectedScan.whois_results.name_servers}</span></p>
                     </div>
                     {selectedScan.whois_results.is_new_domain && (
                       <span className="block text-[8px] font-mono text-cyber-red font-bold text-center bg-cyber-red/10 border border-cyber-red/20 py-0.5 rounded animate-pulse mt-1">

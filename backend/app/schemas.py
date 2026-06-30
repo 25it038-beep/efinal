@@ -47,8 +47,30 @@ class WhoisResult(BaseModel):
     registrar: Optional[str] = "Unknown"
     registration_date: Optional[str] = "Unknown"
     expiration_date: Optional[str] = "Unknown"
+    updated_date: Optional[str] = "Unknown"
     country: Optional[str] = "Unknown"
+    name_servers: Optional[str] = "Unknown"
     is_new_domain: bool = False
+
+class DnsResult(BaseModel):
+    ip_address: Optional[str] = "Unknown"
+    a_records: List[str] = []
+    aaaa_records: List[str] = []
+    mx_records: List[str] = []
+    txt_records: List[str] = []
+    ns_records: List[str] = []
+    cname_records: List[str] = []
+
+class SslResult(BaseModel):
+    has_ssl: bool = False
+    issuer: Optional[str] = "Unknown"
+    subject: Optional[str] = "Unknown"
+    valid_from: Optional[str] = "Unknown"
+    valid_to: Optional[str] = "Unknown"
+    signature_algorithm: Optional[str] = "Unknown"
+    is_expired: bool = True
+    days_remaining: int = 0
+    is_self_signed: bool = False
 
 class EmailAuthResult(BaseModel):
     spf: str = "None"      # "Pass", "Fail", "None", "Neutral"
@@ -102,6 +124,8 @@ class PredictResponse(BaseModel):
     threat_type: Optional[str] = "Unknown"
     virustotal_results: Optional[VirusTotalResult] = None
     whois_results: Optional[WhoisResult] = None
+    dns_results: Optional[DnsResult] = None
+    ssl_results: Optional[SslResult] = None
     email_auth_results: Optional[EmailAuthResult] = None
     attachment_analysis: List[AttachmentInfo] = []
     llm_analysis: Optional[LlmAnalysisResult] = None
@@ -129,6 +153,8 @@ class UrlAnalyzeResponse(BaseModel):
     # V2 Upgrades
     virustotal_results: Optional[VirusTotalResult] = None
     whois_results: Optional[WhoisResult] = None
+    dns_results: Optional[DnsResult] = None
+    ssl_results: Optional[SslResult] = None
 
 class StatsResponse(BaseModel):
     total_scans: int

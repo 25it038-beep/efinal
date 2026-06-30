@@ -44,7 +44,9 @@ interface WhoisResult {
   registrar?: string;
   registration_date?: string;
   expiration_date?: string;
+  updated_date?: string;
   country?: string;
+  name_servers?: string;
   is_new_domain: boolean;
 }
 
@@ -655,6 +657,9 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
                           <p className="truncate">Country: <span className="text-slate-200 font-bold">{emailResult.whois_results.country}</span></p>
                           <p className="truncate">Registrar: <span className="text-slate-200 font-bold">{emailResult.whois_results.registrar}</span></p>
                           <p className="truncate">Registered: <span className="text-slate-200 font-bold">{emailResult.whois_results.registration_date}</span></p>
+                          <p className="truncate">Expires: <span className="text-slate-200 font-bold">{emailResult.whois_results.expiration_date}</span></p>
+                          <p className="truncate">Updated: <span className="text-slate-200 font-bold">{emailResult.whois_results.updated_date}</span></p>
+                          <p className="truncate col-span-2">Name Servers: <span className="text-slate-200 font-bold" title={emailResult.whois_results.name_servers}>{emailResult.whois_results.name_servers}</span></p>
                         </div>
                         {emailResult.whois_results.is_new_domain && (
                           <div className="p-1.5 bg-cyber-red/10 border border-cyber-red/20 rounded text-[9px] font-mono text-cyber-red font-bold text-center animate-pulse">
@@ -1015,7 +1020,7 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
 
                     {/* WHOIS Card */}
                     {urlResult.whois_results && (
-                      <div className="glass-panel p-5 rounded-xl text-left space-y-2">
+                      <div className="glass-panel p-4 rounded-xl text-left space-y-2">
                         <h4 className="font-mono text-xs text-slate-300 uppercase tracking-wider border-b border-slate-800 pb-1.5 flex items-center gap-1.5">
                           <Globe className="w-4 h-4 text-cyber-blue" /> WHOIS Domain Metadata
                         </h4>
@@ -1024,6 +1029,9 @@ export const EmailAnalyzer: React.FC<EmailAnalyzerProps> = ({ onScanCompleted })
                           <p className="truncate">Country: <span className="text-slate-200 font-bold">{urlResult.whois_results.country}</span></p>
                           <p className="truncate">Registrar: <span className="text-slate-200 font-bold">{urlResult.whois_results.registrar}</span></p>
                           <p className="truncate">Registered: <span className="text-slate-200 font-bold">{urlResult.whois_results.registration_date}</span></p>
+                          <p className="truncate">Expires: <span className="text-slate-200 font-bold">{urlResult.whois_results.expiration_date}</span></p>
+                          <p className="truncate">Updated: <span className="text-slate-200 font-bold">{urlResult.whois_results.updated_date}</span></p>
+                          <p className="truncate col-span-2">Name Servers: <span className="text-slate-200 font-bold" title={urlResult.whois_results.name_servers}>{urlResult.whois_results.name_servers}</span></p>
                         </div>
                         {urlResult.whois_results.is_new_domain && (
                           <div className="p-1.5 bg-cyber-red/10 border border-cyber-red/20 rounded text-[9px] font-mono text-cyber-red font-bold text-center animate-pulse">

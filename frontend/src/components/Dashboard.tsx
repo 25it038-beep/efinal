@@ -34,7 +34,9 @@ interface WhoisResult {
   registrar?: string;
   registration_date?: string;
   expiration_date?: string;
+  updated_date?: string;
   country?: string;
+  name_servers?: string;
   is_new_domain: boolean;
 }
 

@@ -48,15 +48,15 @@ from .models import User, ScanHistory
 from .schemas import (
     EmailPredictRequest, PredictResponse, StatsResponse,
     UrlAnalyzeRequest, UrlAnalyzeResponse,
-    VirusTotalResult, WhoisResult, EmailAuthResult, AttachmentInfo, LlmAnalysisResult
+    VirusTotalResult, WhoisResult, DnsResult, SslResult, EmailAuthResult, AttachmentInfo, LlmAnalysisResult
 )
 from .classifier import PhishingClassifier
 from .utils import (
     parse_eml, scan_image_for_qr, extract_text_from_image,
-    check_virustotal, get_whois_info, check_url_reputation,
+    check_virustotal, get_whois_info, get_dns_info, get_ssl_info, check_url_reputation,
     analyze_attachment, get_extension_zip_bytes, sanitize_html
 )
-from .llm import generate_llm_explanation
+from .llm import generate_llm_explanation, generate_url_llm_explanation
 
 # Initialize Limiter for rate limiting
 limiter = Limiter(key_func=get_remote_address)
@@ -459,44 +459,122 @@ async def analyze_url_endpoint(
         
     # 1. Core Heuristic Reputation Check
     result = check_url_reputation(sanitized_url)
+    domain = result["domain"]
     
-    # 2. Parallel VirusTotal and WHOIS fetching
+    # 2. Parallel VirusTotal, WHOIS, DNS, and SSL fetching
     vt_task = run_in_threadpool(check_virustotal, sanitized_url)
-    whois_task = run_in_threadpool(get_whois_info, result["domain"])
+    whois_task = run_in_threadpool(get_whois_info, domain)
+    dns_task = run_in_threadpool(get_dns_info, domain)
+    ssl_task = run_in_threadpool(get_ssl_info, domain)
     
-    vt_result_dict, whois_result_dict = await asyncio.gather(vt_task, whois_task)
+    vt_result_dict, whois_result_dict, dns_result_dict, ssl_result_dict = await asyncio.gather(
+        vt_task, whois_task, dns_task, ssl_task
+    )
+    
     vt_result = VirusTotalResult(**vt_result_dict)
     whois_result = WhoisResult(**whois_result_dict)
+    dns_result = DnsResult(**dns_result_dict)
+    ssl_result = SslResult(**ssl_result_dict)
     
-    # Boost risk score based on VirusTotal results
+    # 3. Calculate final risk score using all collected features
+    risk_score = result["risk_score"]
+    
+    # Adjustments based on VirusTotal
     if vt_result.malicious > 0:
-        result["risk_score"] = min(result["risk_score"] + 30.0, 100.0)
+        risk_score += 30.0
         result["status"] = "Dangerous"
+        
+    # Adjustments based on WHOIS
     if whois_result.is_new_domain:
-        result["risk_score"] = min(result["risk_score"] + 15.0, 100.0)
-        if result["status"] == "Safe":
-            result["status"] = "Suspicious"
-            
+        risk_score += 15.0
+        
+    # Adjustments based on SSL
+    if not ssl_result.has_ssl:
+        risk_score += 20.0
+        result["threat_type"] = "Insecure Connection (No SSL)"
+    elif ssl_result.is_expired:
+        risk_score += 15.0
+        result["threat_type"] = "Expired SSL Certificate"
+    elif ssl_result.is_self_signed:
+        risk_score += 10.0
+        result["threat_type"] = "Untrusted / Self-Signed SSL"
+        
+    # Adjustments based on DNS
+    if dns_result.ip_address == "Unknown":
+        risk_score += 25.0
+        result["threat_type"] = "DNS Resolution Failure"
+    elif not dns_result.mx_records:
+        risk_score += 5.0
+        
+    # Cap risk score
+    risk_score = min(max(risk_score, 0.0), 100.0)
+    result["risk_score"] = risk_score
+    
+    # Update status based on final risk score
+    if risk_score >= 70.0:
+        result["status"] = "Dangerous"
+    elif risk_score >= 30.0:
+        result["status"] = "Suspicious"
+    else:
+        result["status"] = "Safe"
+        
+    # Determine threat type and advice if clean
+    if result["status"] == "Safe":
+        result["threat_type"] = "No Threat Detected"
+        result["advice"] = f"This URL appears to be clean. It is secured with a valid SSL certificate from {ssl_result.issuer}."
+    else:
+        if result["threat_type"] == "No Threat Detected":
+            result["threat_type"] = "Suspicious URL Indicators"
+        result["advice"] = f"Caution: This URL has a risk score of {risk_score:.1f}/100. "
+        if ssl_result.is_expired or not ssl_result.has_ssl:
+            result["advice"] += "It lacks secure SSL encryption. "
+        if whois_result.is_new_domain:
+            result["advice"] += "The domain is very new. "
+        result["advice"] += "Avoid entering passwords or sensitive data."
+
+    # 4. Generate dynamic RAG/LLM explanation
+    llm_analysis_dict = await run_in_threadpool(
+        generate_url_llm_explanation,
+        sanitized_url,
+        domain,
+        result["status"],
+        risk_score,
+        {
+            "status": result["status"],
+            "reasons": result["reasons"]
+        },
+        whois_result_dict,
+        dns_result_dict,
+        ssl_result_dict,
+        vt_result_dict
+    )
+    
+    # Use the LLM's danger_explanation as the advice/explanation
+    if llm_analysis_dict.get("danger_explanation"):
+        summary = llm_analysis_dict["danger_explanation"].split("\n\n")[0]
+        summary = re.sub(r'^###\s+Executive\s+Summary\s*\n', '', summary)
+        result["advice"] = summary
+        
     db_class = "Phishing" if result["status"] == "Dangerous" else result["status"]
     
-    # 3. Save to History
+    # 5. Save to History
     db_history = ScanHistory(
         user_id=current_user.id if current_user else None,
-        subject=f"URL Scan: {result['domain']}",
+        subject=f"URL Scan: {domain}",
         sender="System URL Analyzer",
         body_preview=f"URL: {result['url']}\nThreat: {result['threat_type']}\nAdvice: {result['advice']}",
         classification=db_class,
         confidence_score=95.0,
         risk_score=result["risk_score"],
-        explanation=f"Threat Type: {result['threat_type']}. {result['advice']}",
+        explanation=result["advice"],
         detected_indicators=json.dumps({
             "urgent_language": False,
             "suspicious_urls": result["status"] != "Safe",
-            "fake_login": any(kw in result["domain"] for kw in ["login", "signin", "secure", "verify"]),
+            "fake_login": any(kw in domain for kw in ["login", "signin", "secure", "verify"]),
             "password_request": False,
-            "banking_scam": any(kw in result["domain"] for kw in ["chase", "bank"]),
+            "banking_scam": any(kw in domain for kw in ["chase", "bank"]),
             "financial_fraud": False,
-            "crypto_scam": any(kw in result["domain"] for kw in ["coinbase", "metamask"]),
+            "crypto_scam": any(kw in domain for kw in ["coinbase", "metamask"]),
             "grammar_issues": False,
             "spoofed_sender": False,
             "dangerous_attachments": False
@@ -506,14 +584,8 @@ async def analyze_url_endpoint(
         whois_results=json.dumps(whois_result.dict()),
         email_auth_results=json.dumps({"spf": "None", "dkim": "None", "dmarc": "None", "is_authenticated": True}),
         attachment_analysis=json.dumps([]),
-        llm_analysis=json.dumps({
-            "danger_explanation": result["advice"],
-            "social_engineering_techniques": ["URL redirection / Obfuscation"],
-            "indicators_of_compromise": [result["url"]],
-            "safety_recommendations": ["Avoid entering passwords", "Verify the SSL certificate"],
-            "mitre_mappings": [{"id": "T1566.002", "name": "Phishing: Spearphishing Link", "description": "Luring victims to click malicious links."}]
-        }),
-        domain=result["domain"],
+        llm_analysis=json.dumps(llm_analysis_dict),
+        domain=domain,
         file_type="URL"
     )
     db.add(db_history)
@@ -524,7 +596,9 @@ async def analyze_url_endpoint(
         "id": db_history.id,
         "created_at": db_history.created_at,
         "virustotal_results": vt_result,
-        "whois_results": whois_result
+        "whois_results": whois_result,
+        "dns_results": dns_result,
+        "ssl_results": ssl_result
     })
     
     return result
